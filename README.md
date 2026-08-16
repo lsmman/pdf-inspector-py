@@ -35,11 +35,11 @@ compiled wheel, use upstream.
 | `text_utils.rs` | 1257 | `text_utils.py` | done |
 | `text_quality.rs` | 520 | `text_quality.py` | done |
 | `process_mode.rs` | 11 | `process_mode.py` | done |
-| `detector.rs` | 3783 | `detector.py` | in progress |
+| `detector.rs` | 3783 | `detector.py` | done |
 | `tounicode.rs` | 3483 | `tounicode.py` | pending |
 | `structure_tree.rs` | 2015 | `structure_tree.py` | pending |
 | `lib.rs` | 7414 | `extract.py`, `markdown.py` | pending |
-| `python.rs` | 731 | `__init__.py` (public API) | pending |
+| `python.rs` | 731 | `__init__.py` (public API) | classification half done |
 
 The two large data tables are mechanically generated from the Rust sources by
 `tools/codegen_tables.py`, so they match upstream entry-for-entry (4532 glyph
