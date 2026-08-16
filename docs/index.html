@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pdf-inspector-py — does this PDF need OCR?</title>
+<meta name="description" content="Classify a PDF as text-based, scanned, image-based, or mixed — running entirely in your browser. Pure-Python port of firecrawl/pdf-inspector.">
+<!-- A page split down the middle: text lines on one side, a blank scan on the
+     other. Inlined so the page makes no external requests of its own. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='5' y='3' width='22' height='26' rx='2' fill='none' stroke='%231f4b7a' stroke-width='2'/%3E%3Cpath d='M16 3v26' stroke='%231f4b7a' stroke-width='2'/%3E%3Cg stroke='%231f4b7a' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M9 10h4M9 15h4M9 20h4'/%3E%3C/g%3E%3Crect x='19' y='9' width='5' height='12' fill='%23a65a08'/%3E%3C/svg%3E">
+<style>
+:root {
+  --ground:  #f7f5f1;
+  --panel:   #fffefb;
+  --ink:     #14181d;
+  --muted:   #5d6570;
+  --rule:    #ddd8d0;
+  --accent:  #1f4b7a;
+  --clean:   #0e6b5c;
+  --flag:    #a65a08;
+  --flag-bg: #f6ecdd;
+  --clean-bg:#e2efec;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground:  #14171a;
+    --panel:   #1b1f24;
+    --ink:     #e8e6e1;
+    --muted:   #99a1ac;
+    --rule:    #2a2f35;
+    --accent:  #7fb0de;
+    --clean:   #4fbfa8;
+    --flag:    #e0a55a;
+    --flag-bg: #2e2519;
+    --clean-bg:#16302c;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+a { color: var(--accent); }
+
+/* ── masthead ─────────────────────────────────────────── */
+.masthead { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 3rem; }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+h1 {
+  font-family: var(--mono);
+  font-size: clamp(1.75rem, 4.5vw, 2.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0;
+  text-wrap: balance;
+}
+.lede { font-size: 1.125rem; color: var(--muted); max-width: 60ch; margin: 0; text-wrap: pretty; }
+.links { display: flex; flex-wrap: wrap; gap: 1.25rem; font-family: var(--mono); font-size: 0.8125rem; }
+
+/* ── panels ───────────────────────────────────────────── */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1.75rem;
+}
+.panel + .panel { margin-top: 1.25rem; }
+
+.notice {
+  border-left: 3px solid var(--flag);
+  background: var(--flag-bg);
+  padding: 1rem 1.25rem;
+  font-size: 0.9375rem;
+  border-radius: 0 4px 4px 0;
+  margin-bottom: 2.5rem;
+}
+.notice strong { font-family: var(--mono); font-weight: 600; }
+
+/* ── dropzone ─────────────────────────────────────────── */
+#drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.75rem;
+  min-height: 11rem;
+  border: 1.5px dashed var(--rule);
+  border-radius: 4px;
+  background: var(--panel);
+  padding: 2rem 1.5rem;
+  text-align: center;
+  transition: border-color .15s, background .15s;
+  cursor: pointer;
+}
+#drop:hover, #drop:focus-visible { border-color: var(--accent); }
+#drop.over { border-color: var(--accent); border-style: solid; background: var(--clean-bg); }
+#drop[aria-disabled="true"] { cursor: progress; opacity: .6; }
+#drop .big { font-family: var(--mono); font-size: 1rem; font-weight: 600; }
+#drop .small { font-size: 0.875rem; color: var(--muted); }
+input[type=file] { display: none; }
+
+.samples { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: 1.25rem; }
+.samples-label {
+  font-family: var(--mono); font-size: .75rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted); margin-right: .25rem;
+}
+.chip {
+  font-family: var(--mono); font-size: .8125rem;
+  background: transparent; color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 999px;
+  padding: .3rem .85rem; cursor: pointer;
+}
+.chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.chip:disabled { opacity: .5; cursor: default; }
+
+/* ── status ───────────────────────────────────────────── */
+#status {
+  font-family: var(--mono); font-size: .8125rem; color: var(--muted);
+  margin-top: 1rem; min-height: 1.4em;
+}
+#status.error { color: var(--flag); }
+
+/* ── readout ──────────────────────────────────────────── */
+#result[hidden] { display: none; }
+#result { margin-top: 2.5rem; }
+
+.verdict { display: flex; flex-wrap: wrap; align-items: baseline; gap: .75rem 1.25rem; margin-bottom: 1.5rem; }
+.verdict .type {
+  font-family: var(--mono); font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em;
+}
+.badge {
+  font-family: var(--mono); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase;
+  padding: .25rem .7rem; border-radius: 3px; white-space: nowrap;
+}
+.badge.clean { background: var(--clean-bg); color: var(--clean); }
+.badge.flag  { background: var(--flag-bg);  color: var(--flag); }
+.filename { font-family: var(--mono); font-size: .875rem; color: var(--muted); word-break: break-all; }
+
+.readout { display: grid; grid-template-columns: max-content 1fr; gap: .6rem 1.5rem; align-items: baseline; }
+.readout dt {
+  font-family: var(--mono); font-size: .75rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted);
+}
+.readout dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.meter { display: flex; align-items: center; gap: .75rem; }
+.meter .track { flex: 1; max-width: 14rem; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+/* Both are spans, so the fill needs blockifying — width/height do not apply to
+   an inline box, which would leave only the track visible. */
+.meter .fill { display: block; height: 100%; background: var(--accent); }
+
+.reasons { margin: 1.5rem 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .4rem; }
+.reasons li {
+  font-family: var(--mono); font-size: .875rem;
+  border-left: 2px solid var(--flag); padding-left: .75rem;
+}
+.reasons .code { color: var(--flag); }
+.reasons .why { color: var(--muted); }
+
+/* ── prose ────────────────────────────────────────────── */
+.prose { margin-top: 4rem; max-width: 68ch; }
+.prose h2 {
+  font-family: var(--mono); font-size: 1rem; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase;
+  margin: 2.5rem 0 .75rem; padding-bottom: .5rem; border-bottom: 1px solid var(--rule);
+}
+.prose p { margin: 0 0 1rem; }
+.prose code {
+  font-family: var(--mono); font-size: .875em;
+  background: var(--panel); border: 1px solid var(--rule);
+  padding: .1em .35em; border-radius: 3px;
+}
+.prose pre {
+  font-family: var(--mono); font-size: .8125rem; line-height: 1.55;
+  background: var(--panel); border: 1px solid var(--rule);
+  padding: 1rem 1.25rem; border-radius: 4px; overflow-x: auto;
+}
+.prose pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+.prose table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.prose th, .prose td { text-align: left; padding: .5rem .75rem .5rem 0; border-bottom: 1px solid var(--rule); }
+.prose th { font-family: var(--mono); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.prose td.status { font-family: var(--mono); }
+.table-wrap { overflow-x: auto; }
+
+footer {
+  margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+  font-family: var(--mono); font-size: .75rem; color: var(--muted);
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 34rem) { .readout { grid-template-columns: 1fr; gap: .15rem; } .readout dd { margin-bottom: .6rem; } }
+</style>
+</head>
+<body>
+<main>
+
+<header class="masthead">
+  <div class="eyebrow">pdf-inspector-py</div>
+  <h1>Does this PDF need OCR?</h1>
+  <p class="lede">
+    Roughly half of all PDFs already carry a real text layer. Sending those through
+    an OCR service is slow and expensive for no gain. This tells you which half
+    you are holding — and it runs entirely in your browser.
+  </p>
+  <div class="links">
+    <a href="https://github.com/lsmman/pdf-inspector-py">Source</a>
+    <a href="https://github.com/firecrawl/pdf-inspector">Upstream (Rust)</a>
+  </div>
+</header>
+
+<div class="notice">
+  <strong>Port in progress.</strong> Classification and per-page OCR routing are
+  ported and tested. Markdown extraction is not — that is upstream's
+  <code>lib.rs</code>, and it is the next chunk of work. The status table below
+  tracks it.
+</div>
+
+<div id="drop" tabindex="0" role="button" aria-label="Choose a PDF to classify">
+  <span class="big" id="drop-title">Drop a PDF here</span>
+  <span class="small" id="drop-sub">or click to choose a file</span>
+</div>
+<input type="file" id="file" accept="application/pdf,.pdf">
+
+<div class="samples">
+  <span class="samples-label">Or try</span>
+  <button class="chip" data-sample="text_page_with_watermark_image.pdf" disabled>text + watermark</button>
+  <button class="chip" data-sample="scan_with_native_header_text.pdf" disabled>scan + header text</button>
+  <button class="chip" data-sample="vector_outlined_text_with_caption.pdf" disabled>outlined glyphs</button>
+  <button class="chip" data-sample="shinagawa_identity_h.pdf" disabled>Identity-H, no ToUnicode</button>
+</div>
+
+<p id="status">Booting Python…</p>
+
+<section id="result" class="panel" hidden aria-live="polite">
+  <div class="verdict">
+    <span class="type" id="r-type"></span>
+    <span class="badge" id="r-badge"></span>
+    <span class="filename" id="r-file"></span>
+  </div>
+  <dl class="readout">
+    <dt>Confidence</dt>
+    <dd>
+      <span class="meter">
+        <span class="track"><span class="fill" id="r-meter"></span></span>
+        <span id="r-conf"></span>
+      </span>
+    </dd>
+    <dt>Pages</dt><dd id="r-pages"></dd>
+    <dt>Needs OCR</dt><dd id="r-ocr"></dd>
+    <dt>Title</dt><dd id="r-title"></dd>
+    <dt>Elapsed</dt><dd id="r-time"></dd>
+  </dl>
+  <ul class="reasons" id="r-reasons"></ul>
+</section>
+
+<section class="prose">
+  <h2>What the verdicts mean</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Verdict</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td class="status">text_based</td><td>A real text layer covers the document. Extract it directly; skip OCR.</td></tr>
+      <tr><td class="status">scanned</td><td>Page images with no text operators at all. OCR is the only option.</td></tr>
+      <tr><td class="status">image_based</td><td>Some text operators exist, but the content is carried by images or by glyphs drawn as vector paths.</td></tr>
+      <tr><td class="status">mixed</td><td>Text and image-backed pages coexist. The per-page OCR list tells you which are which.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>Why a page gets flagged</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Reason</th><th>What was detected</th></tr></thead>
+    <tbody>
+      <tr><td class="status">scanned</td><td>A full-page background image with little or no usable text drawn over it.</td></tr>
+      <tr><td class="status">no_text</td><td>Nothing extractable and no image either — an empty or unreadable page.</td></tr>
+      <tr><td class="status">vector_text</td><td>Glyphs are drawn as paths, not shown as text. There is nothing to extract, however clean the page looks.</td></tr>
+      <tr><td class="status">suspected_garbled_text</td><td>A text layer exists but will not decode to Unicode — typically Identity-H fonts with no ToUnicode CMap, or Type3 glyph bitmaps.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>Use it</h2>
+  <pre><code>pip install git+https://github.com/lsmman/pdf-inspector-py</code></pre>
+  <pre><code>from pdf_inspector import classify_pdf
+
+result = classify_pdf("document.pdf")
+result.pdf_type          # 'text_based'
+result.confidence        # 1.0
+result.pages_needing_ocr # [] — 0-indexed</code></pre>
+  <p>Or from the shell:</p>
+  <pre><code>detect-pdf document.pdf --json</code></pre>
+
+  <h2>How it runs here</h2>
+  <p>
+    The page loads <a href="https://pyodide.org">Pyodide</a> and installs the real
+    package — the same wheel you would <code>pip install</code>. Your file is read
+    into the browser's memory and never uploaded. That is possible because the
+    port is pure Python: no compiled extension to build, so it runs wherever
+    Python does, including here.
+  </p>
+  <p>
+    The trade-off is speed. Upstream is Rust and classifies a document in tens of
+    milliseconds; this is slower, and slower again under Pyodide. If you need the
+    throughput and can install a compiled wheel,
+    <a href="https://github.com/firecrawl/pdf-inspector">use upstream</a>.
+  </p>
+
+  <h2>Port status</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Upstream module</th><th>Purpose</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="status">glyph_names.rs</td><td>Adobe Glyph List</td><td class="status">done</td></tr>
+      <tr><td class="status">adobe_korea1.rs</td><td>Korean CID table</td><td class="status">done</td></tr>
+      <tr><td class="status">types.rs</td><td>Text items and lines</td><td class="status">done</td></tr>
+      <tr><td class="status">text_utils.rs</td><td>Spacing, ligatures, RTL</td><td class="status">done</td></tr>
+      <tr><td class="status">text_quality.rs</td><td>Garbled-text detection</td><td class="status">done</td></tr>
+      <tr><td class="status">detector.rs</td><td>Classification, OCR routing</td><td class="status">done</td></tr>
+      <tr><td class="status">tounicode.rs</td><td>CMap decoding</td><td class="status">pending</td></tr>
+      <tr><td class="status">structure_tree.rs</td><td>Tagged-PDF structure</td><td class="status">pending</td></tr>
+      <tr><td class="status">lib.rs</td><td>Extraction and Markdown</td><td class="status">pending</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<footer>
+  MIT. Ported from firecrawl/pdf-inspector v1.14.2. Your files stay in your browser.
+</footer>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.29.2/full/pyodide.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const els = {
+    drop:    document.getElementById("drop"),
+    dropT:   document.getElementById("drop-title"),
+    dropS:   document.getElementById("drop-sub"),
+    file:    document.getElementById("file"),
+    status:  document.getElementById("status"),
+    result:  document.getElementById("result"),
+    type:    document.getElementById("r-type"),
+    badge:   document.getElementById("r-badge"),
+    fname:   document.getElementById("r-file"),
+    conf:    document.getElementById("r-conf"),
+    meter:   document.getElementById("r-meter"),
+    pages:   document.getElementById("r-pages"),
+    ocr:     document.getElementById("r-ocr"),
+    title:   document.getElementById("r-title"),
+    time:    document.getElementById("r-time"),
+    reasons: document.getElementById("r-reasons"),
+    chips:   Array.from(document.querySelectorAll(".chip")),
+  };
+
+  const REASON_TEXT = {
+    scanned: "full-page image, no usable text over it",
+    no_text: "nothing extractable and no image either",
+    vector_text: "glyphs drawn as paths, not shown as text",
+    suspected_garbled_text: "text layer will not decode to Unicode",
+  };
+
+  let pyodide = null;
+  let busy = false;
+
+  function setStatus(message, isError) {
+    els.status.textContent = message;
+    els.status.classList.toggle("error", Boolean(isError));
+  }
+
+  function setBusy(state, label) {
+    busy = state;
+    els.drop.setAttribute("aria-disabled", String(state));
+    els.chips.forEach((chip) => { chip.disabled = state; });
+    els.dropT.textContent = state ? (label || "Working…") : "Drop a PDF here";
+    els.dropS.textContent = state ? "" : "or click to choose a file";
+  }
+
+  async function boot() {
+    setBusy(true, "Booting…");
+    try {
+      setStatus("Loading Python runtime…");
+      pyodide = await loadPyodide();
+      setStatus("Installing pypdf and pdf-inspector-py…");
+      await pyodide.loadPackage("micropip");
+      const micropip = pyodide.pyimport("micropip");
+      await micropip.install("pypdf");
+      await micropip.install("./pdf_inspector_py-0.1.0-py3-none-any.whl");
+      await pyodide.runPythonAsync(`
+import json, logging, time
+logging.getLogger("pypdf").setLevel(logging.ERROR)
+from pdf_inspector import detect_pdf_bytes
+from pdf_inspector.errors import PdfError
+
+def classify(data):
+    started = time.perf_counter()
+    try:
+        result = detect_pdf_bytes(bytes(data))
+    except PdfError as exc:
+        return json.dumps({"error": str(exc)})
+    return json.dumps({
+        "pdf_type": result.pdf_type,
+        "page_count": result.page_count,
+        "confidence": result.confidence,
+        "title": result.title,
+        "pages_needing_ocr": result.pages_needing_ocr,
+        "reasons": {str(e.page): e.reasons for e in result.ocr_reasons_by_page},
+        "elapsed_ms": round((time.perf_counter() - started) * 1000),
+    })
+`);
+      setBusy(false);
+      setStatus("Ready. Everything runs locally — nothing is uploaded.");
+    } catch (err) {
+      setBusy(false);
+      els.drop.setAttribute("aria-disabled", "true");
+      setStatus("Could not start the Python runtime: " + err.message, true);
+    }
+  }
+
+  async function run(bytes, name) {
+    if (busy || !pyodide) return;
+    setBusy(true, "Classifying…");
+    setStatus("Reading " + name + "…");
+    try {
+      const fn = pyodide.globals.get("classify");
+      const raw = fn(bytes);
+      fn.destroy();
+      render(JSON.parse(raw), name);
+    } catch (err) {
+      els.result.hidden = true;
+      setStatus("Failed to classify " + name + ": " + err.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function render(data, name) {
+    if (data.error) {
+      els.result.hidden = true;
+      setStatus(name + ": " + data.error, true);
+      return;
+    }
+
+    const needsOcr = data.pages_needing_ocr.length > 0;
+    els.type.textContent = data.pdf_type;
+    els.badge.textContent = needsOcr ? "OCR needed" : "no OCR needed";
+    els.badge.className = "badge " + (needsOcr ? "flag" : "clean");
+    els.fname.textContent = name;
+
+    const pct = Math.round(data.confidence * 100);
+    els.conf.textContent = pct + "%";
+    els.meter.style.width = pct + "%";
+
+    els.pages.textContent = String(data.page_count);
+    els.ocr.textContent = needsOcr
+      ? data.pages_needing_ocr.join(", ") + " of " + data.page_count
+      : "none";
+    els.title.textContent = data.title || "—";
+    els.time.textContent = data.elapsed_ms + " ms";
+
+    els.reasons.replaceChildren();
+    Object.keys(data.reasons).sort((a, b) => a - b).forEach((page) => {
+      data.reasons[page].forEach((code) => {
+        const li = document.createElement("li");
+        const label = document.createElement("span");
+        label.className = "code";
+        label.textContent = "page " + page + " — " + code;
+        const why = document.createElement("span");
+        why.className = "why";
+        why.textContent = REASON_TEXT[code] ? "  ·  " + REASON_TEXT[code] : "";
+        li.append(label, why);
+        els.reasons.append(li);
+      });
+    });
+
+    els.result.hidden = false;
+    setStatus("Done. Nothing left your browser.");
+  }
+
+  async function fromFile(file) {
+    if (!file) return;
+    const buffer = await file.arrayBuffer();
+    run(new Uint8Array(buffer), file.name);
+  }
+
+  els.drop.addEventListener("click", () => { if (!busy) els.file.click(); });
+  els.drop.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!busy) els.file.click(); }
+  });
+  els.file.addEventListener("change", () => fromFile(els.file.files[0]));
+
+  ["dragenter", "dragover"].forEach((type) =>
+    els.drop.addEventListener(type, (e) => { e.preventDefault(); els.drop.classList.add("over"); })
+  );
+  ["dragleave", "drop"].forEach((type) =>
+    els.drop.addEventListener(type, (e) => { e.preventDefault(); els.drop.classList.remove("over"); })
+  );
+  els.drop.addEventListener("drop", (e) => fromFile(e.dataTransfer.files[0]));
+
+  els.chips.forEach((chip) =>
+    chip.addEventListener("click", async () => {
+      if (busy) return;
+      const name = chip.dataset.sample;
+      setBusy(true, "Fetching sample…");
+      try {
+        const response = await fetch("./samples/" + name);
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const buffer = await response.arrayBuffer();
+        setBusy(false);
+        run(new Uint8Array(buffer), name);
+      } catch (err) {
+        setBusy(false);
+        setStatus("Could not load sample " + name + ": " + err.message, true);
+      }
+    })
+  );
+
+  boot();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Run tests
+        run: uv run --python ${{ matrix.python-version }} --group dev pytest -q
+
+  codegen-is-current:
+    # The two data tables are generated from the upstream Rust sources. Guard
+    # against hand-edits by regenerating them and failing on any difference.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out upstream at the pinned commit
+        run: |
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/firecrawl/pdf-inspector.git upstream
+          git -C upstream checkout 2543abe3715848589903754f30b5dca54f6b33a6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Regenerate and diff
+        run: |
+          python tools/codegen_tables.py upstream
+          git diff --exit-code -- src/pdf_inspector/_glyph_names_data.py \
+                                  src/pdf_inspector/_adobe_korea1_data.py
