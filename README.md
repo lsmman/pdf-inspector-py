@@ -36,10 +36,20 @@ compiled wheel, use upstream.
 | `text_quality.rs` | 520 | `text_quality.py` | done |
 | `process_mode.rs` | 11 | `process_mode.py` | done |
 | `detector.rs` | 3783 | `detector.py` | done |
-| `tounicode.rs` | 3483 | `tounicode.py` | pending |
+| `tounicode.rs` | 3483 | `cmap.py` + `tounicode.py` | done except bundled bcmaps |
 | `structure_tree.rs` | 2015 | `structure_tree.py` | pending |
-| `lib.rs` | 7414 | `extract.py`, `markdown.py` | pending |
-| `python.rs` | 731 | `__init__.py` (public API) | classification half done |
+| `extractor/` (6 files) | 13409 | — | pending |
+| `markdown/` (3 files) | 6233 | — | pending |
+| `tables/` (8 files) | 18414 | — | pending |
+| `lib.rs` | 7414 | `__init__.py` (public API) | classification half done |
+
+Upstream is **85,497 lines** of Rust across 25 files. Roughly 22k of that is
+generated lookup data, which this port machine-generates rather than retypes;
+the rest is logic.
+
+The one deliberate gap so far is upstream's bundled binary CMaps
+(`external/bcmaps`), which resolve the Adobe-Japan1, Adobe-GB1 and Adobe-CNS1
+CID collections. Adobe-Korea1 does not need them, so Korean CID fonts decode.
 
 The two large data tables are mechanically generated from the Rust sources by
 `tools/codegen_tables.py`, so they match upstream entry-for-entry (4532 glyph
