@@ -16,6 +16,12 @@ classifiers = [
 ]
 dependencies = ["pypdf>=5.1"]
 
+[project.optional-dependencies]
+# AES-encrypted PDFs need a real crypto backend. It is optional because
+# `cryptography` is a compiled extension, and a pure-Python install is the
+# whole point of this package — see README.
+crypto = ["cryptography>=3.1"]
+
 [project.urls]
 Homepage = "https://github.com/lsmman/pdf-inspector-py"
 Demo = "https://lsmman.github.io/pdf-inspector-py/"
@@ -26,7 +32,9 @@ pdf2md = "pdf_inspector.cli:pdf2md_main"
 detect-pdf = "pdf_inspector.cli:detect_pdf_main"
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+# cryptography is here so CI exercises the encrypted-PDF path rather than
+# skipping it; it stays out of the runtime dependencies.
+dev = ["pytest>=8.0", "cryptography>=3.1"]
 
 [build-system]
 requires = ["hatchling"]

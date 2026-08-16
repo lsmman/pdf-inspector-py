@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from pypdf import PdfReader
+from pypdf.errors import DependencyError
 from pypdf.generic import (
     ArrayObject,
     DictionaryObject,
@@ -28,6 +29,13 @@ from pypdf.generic import (
 )
 
 from .errors import NotAPdfError, PdfEncryptedError, PdfIoError, PdfParseError
+
+
+#: Message used when an AES-encrypted PDF is opened without `cryptography`.
+_NEEDS_CRYPTO = (
+    "PDF is encrypted with AES, which needs the optional 'cryptography' "
+    "package: pip install 'pdf-inspector-py[crypto]'"
+)
 
 
 def _decrypt(reader: PdfReader, password: str | None) -> None:
@@ -44,6 +52,12 @@ def _decrypt(reader: PdfReader, password: str | None) -> None:
         try:
             if reader.decrypt(candidate):
                 return
+        except DependencyError as exc:
+            # AES needs `cryptography`, which is a compiled extension and so is
+            # deliberately not a hard dependency — that would cost the
+            # pure-Python install this package exists to keep. Say what to
+            # install rather than reporting a generic decryption failure.
+            raise PdfEncryptedError(_NEEDS_CRYPTO) from exc
         except Exception:
             continue
 
@@ -79,6 +93,10 @@ class Document:
             raise NotAPdfError("invalid PDF file header")
         try:
             reader = PdfReader(io.BytesIO(data), strict=False)
+        except DependencyError as exc:
+            # pypdf decrypts eagerly during construction for some files, so the
+            # missing-cryptography case can surface here as well as in _decrypt.
+            raise PdfEncryptedError(_NEEDS_CRYPTO) from exc
         except Exception as exc:  # pypdf raises a wide variety of types
             raise PdfParseError(str(exc)) from exc
 

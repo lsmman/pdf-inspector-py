@@ -8,12 +8,15 @@ free to change.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from pathlib import Path
 
 import pytest
+from pypdf.errors import DependencyError
 
 from pdf_inspector import classify_pdf, detect_pdf
+from pdf_inspector import pdfdoc
 from pdf_inspector.errors import NotAPdfError, PdfEncryptedError
 from pdf_inspector.ocr_reasons import (
     OCR_REASON_SUSPECTED_GARBLED_TEXT,
@@ -105,6 +108,13 @@ def test_pages_needing_ocr_is_zero_indexed_in_classify():
     assert detection.pages_needing_ocr == [1]
 
 
+has_cryptography = importlib.util.find_spec("cryptography") is not None
+
+
+@pytest.mark.skipif(
+    not has_cryptography,
+    reason="AES decryption needs the optional 'crypto' extra",
+)
 class TestEncryptedPdf:
     PATH = FIXTURES / "encrypted-secret123.pdf"
 
@@ -118,6 +128,24 @@ class TestEncryptedPdf:
 
     def test_correct_password_opens(self):
         assert Document.from_path(self.PATH, "secret123").page_count == 8
+
+
+def test_missing_cryptography_says_what_to_install(monkeypatch):
+    """Without the extra, an AES-encrypted PDF must name the fix.
+
+    pypdf raises DependencyError here; surfacing that as a generic parse error
+    would leave the caller with no idea that one `pip install` fixes it.
+    """
+
+    def raise_dependency_error(*args, **kwargs):
+        raise DependencyError("cryptography>=3.1 is required for AES algorithm")
+
+    monkeypatch.setattr(pdfdoc, "PdfReader", raise_dependency_error)
+
+    with pytest.raises(PdfEncryptedError) as excinfo:
+        Document.from_path(FIXTURES / "encrypted-secret123.pdf")
+
+    assert "pdf-inspector-py[crypto]" in str(excinfo.value)
 
 
 def test_non_pdf_bytes_rejected():
