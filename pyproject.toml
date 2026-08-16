@@ -1,0 +1,40 @@
+[project]
+name = "pdf-inspector-py"
+version = "0.1.0"
+description = "Pure-Python PDF classification and Markdown extraction — a port of firecrawl/pdf-inspector"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "lsmman" }]
+requires-python = ">=3.10"
+keywords = ["pdf", "markdown", "ocr", "text-extraction", "document-parsing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dependencies = ["pypdf>=5.1"]
+
+[project.urls]
+Homepage = "https://github.com/lsmman/pdf-inspector-py"
+Demo = "https://lsmman.github.io/pdf-inspector-py/"
+Upstream = "https://github.com/firecrawl/pdf-inspector"
+
+[project.scripts]
+pdf2md = "pdf_inspector.cli:pdf2md_main"
+detect-pdf = "pdf_inspector.cli:detect_pdf_main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pdf_inspector"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
